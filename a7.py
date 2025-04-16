@@ -51,6 +51,9 @@ class BayesClassifier:
         _, __, files = next(os.walk(self.training_data_directory), (None, None, []))
         if not files:
             raise RuntimeError(f"Couldn't find path {self.training_data_directory}")
+        
+        stoplist_file = self.load_file("sorted_stoplist.txt")
+        stopwords = self.tokenize(stoplist_file)
 
         # files now holds a list of the filenames
         # self.training_data_directory holds the folder name where these files are
@@ -60,6 +63,21 @@ class BayesClassifier:
         # `text` here will be the literal text of the file (i.e. what you would see
         # if you opened the file in a text editor
         # text = self.load_file(os.path.join(self.training_data_directory, fName))
+        for index, fName in enumerate(files, 1): # type: ignore
+            text = self.load_file(os.path.join(self.training_data_directory, fName))
+            tokens = self.tokenize(text)
+            filtered_tokens = [token for token in tokens if token not in stopwords]
+
+            isPositive = fName.startswith(self.pos_file_prefix)
+            isNegative = fName.startswith(self.neg_file_prefix)
+            if not isPositive and not isNegative:
+                continue
+
+            self.update_dict(filtered_tokens, self.pos_freqs if isPositive else self.neg_freqs)
+            print(f"Training on file {index} of {len(files)}")
+
+        self.save_dict(self.pos_freqs, self.pos_filename)
+        self.save_dict(self.neg_freqs, self.neg_filename)
 
 
         # *Tip:* training can take a while, to make it more transparent, we can use the
@@ -113,24 +131,45 @@ class BayesClassifier:
 
         
         # get a list of the individual tokens that occur in text
+        tokens = self.tokenize(text)
+
+        stoplist_file = self.load_file("sorted_stoplist.txt")
+        stopwords = self.tokenize(stoplist_file)
         
 
         # create some variables to store the positive and negative probability. since
         # we will be adding logs of probabilities, the initial values for the positive
         # and negative probabilities are set to 0
+        pos_prob = 0.0
+        neg_prob = 0.0
         
 
         # get the sum of all of the frequencies of the features in each document class
         # (i.e. how many words occurred in all documents for the given class) - this
         # will be used in calculating the probability of each document class given each
         # individual feature
-        
+        pos_denominator = sum(self.pos_freqs.values())
+        neg_denominator = sum(self.neg_freqs.values())
+
 
         # for each token in the text, calculate the probability of it occurring in a
         # postive document and in a negative document and add the logs of those to the
         # running sums. when calculating the probabilities, always add 1 to the numerator
         # of each probability for add one smoothing (so that we never have a probability
         # of 0)
+
+        for token in tokens:
+            if(token in stopwords):
+                continue
+            pos_freq = self.pos_freqs.get(token, 0) + 1
+            neg_freq = self.neg_freqs.get(token, 0) + 1
+
+            pos_prob += math.log(pos_freq / (pos_denominator + len(self.pos_freqs)))
+            neg_prob += math.log(neg_freq / (neg_denominator + len(self.neg_freqs)))
+        
+        # print(f"Positive probability: {pos_prob}")
+        # print(f"Negative probability: {neg_prob}")
+
 
 
         # for debugging purposes, it may help to print the overall positive and negative
@@ -139,6 +178,8 @@ class BayesClassifier:
 
         # determine whether positive or negative was more probable (i.e. which one was
         # larger)
+
+        return "positive" if pos_prob > neg_prob else "negative"
         
 
         # return a string of "positive" or "negative"
@@ -221,29 +262,33 @@ class BayesClassifier:
             words - list of tokens to update frequencies of
             freqs - dictionary of frequencies to update
         """
-        # TODO: your work here
-        pass  # remove this line once you've implemented this method
+
+        for i in words:
+            if(i in freqs):
+                freqs[i] += 1
+            else:
+                freqs[i] = 1
 
 
 if __name__ == "__main__":
     # uncomment the below lines once you've implemented `train` & `classify`
-    # b = BayesClassifier()
-    # a_list_of_words = ["I", "really", "like", "this", "movie", ".", "I", "hope", \
-    #                    "you", "like", "it", "too"]
-    # a_dictionary = {}
-    # b.update_dict(a_list_of_words, a_dictionary)
-    # assert a_dictionary["I"] == 2, "update_dict test 1"
-    # assert a_dictionary["like"] == 2, "update_dict test 2"
-    # assert a_dictionary["really"] == 1, "update_dict test 3"
-    # assert a_dictionary["too"] == 1, "update_dict test 4"
-    # print("update_dict tests passed.")
+    b = BayesClassifier()
+    a_list_of_words = ["I", "really", "like", "this", "movie", ".", "I", "hope", \
+                       "you", "like", "it", "too"]
+    a_dictionary = {}
+    b.update_dict(a_list_of_words, a_dictionary)
+    assert a_dictionary["I"] == 2, "update_dict test 1"
+    assert a_dictionary["like"] == 2, "update_dict test 2"
+    assert a_dictionary["really"] == 1, "update_dict test 3"
+    assert a_dictionary["too"] == 1, "update_dict test 4"
+    print("update_dict tests passed.")
 
-    # pos_denominator = sum(b.pos_freqs.values())
-    # neg_denominator = sum(b.neg_freqs.values())
+    pos_denominator = sum(b.pos_freqs.values())
+    neg_denominator = sum(b.neg_freqs.values())
 
-    # print("\nThese are the sums of values in the positive and negative dicitionaries.")
-    # print(f"sum of positive word counts is: {pos_denominator}")
-    # print(f"sum of negative word counts is: {neg_denominator}")
+    print("\nThese are the sums of values in the positive and negative dicitionaries.")
+    print(f"sum of positive word counts is: {pos_denominator}")
+    print(f"sum of negative word counts is: {neg_denominator}")
 
     # print("\nHere are some sample word counts in the positive and negative dicitionaries.")
     # print(f"count for the word 'love' in positive dictionary {b.pos_freqs['love']}")
@@ -268,10 +313,10 @@ if __name__ == "__main__":
     # print(f"P('terrible'| neg) {(b.neg_freqs['terrible']+1)/neg_denominator}")
 
     # # uncomment the below lines once you've implemented `classify`
-    # print("\nThe following should all be positive.")
-    # print(b.classify('I love computer science'))
-    # print(b.classify('this movie is fantastic'))
-    # print("\nThe following should all be negative.")
-    # print(b.classify('rainy days are the worst'))
-    # print(b.classify('computer science is terrible'))
+    print("\nThe following should all be positive.")
+    print(b.classify('I love computer science'))
+    print(b.classify('this movie is fantastic'))
+    print("\nThe following should all be negative.")
+    print(b.classify('rainy days are the worst'))
+    print(b.classify('computer science is terrible'))
     pass
